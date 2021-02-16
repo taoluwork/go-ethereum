@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -62,15 +63,18 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		header   = block.Header()
 		allLogs  []*types.Log
 		gp       = new(GasPool).AddGas(block.GasLimit())
+		txCount  = 0 //[TL]	[BL]
 	)
 	// Mutate the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
 	}
+	//	timeTXs := time.Now() //[TL] [BL]
 	blockContext := NewEVMBlockContext(header, p.bc, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
+		timeSingleTX := time.Now() //[TL] [Tx]
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number))
 		if err != nil {
 			return nil, nil, 0, err
@@ -82,11 +86,14 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
+		fmt.Println("[TX] idx= ", i, "t=", time.Since(timeSingleTX)) //[SPEED] [TX]
+		txCount = i                                                  //[TL] [BL]
 	}
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
-	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles())
-
-	return receipts, allLogs, *usedGas, nil
+	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles()) //[TL] skip the Finalize
+	//fmt.Println("skipped Block finalization, FREEZE")	//[TL]
+	//	fmt.Println("[BL] TxCount=", txCount, "t=", time.Since(timeTXs)) //applyTx +j finalize [TL] [BL]
+	return receipts, allLogs, *usedGas, txCount, nil //[TL] added txCount return value
 }
 
 func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
@@ -115,10 +122,14 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	var root []byte
 	if config.IsByzantium(header.Number) {
 		statedb.Finalise(true)
+		//fmt.Println("[OP] skipped Tx finalize") //[TL] [OP] [TX]
 	} else {
 		root = statedb.IntermediateRoot(config.IsEIP158(header.Number)).Bytes()
+		//fmt.Println("skipped Tx Finalize")	//[TL] [OP] [TX]
 	}
 	*usedGas += result.UsedGas
+	//fmt.Println("[TX] Finalize t=", time.Since(timeFinaliseState))	//[TL] [TX]
+	//timeReceipt := time.Now()
 
 	// Create a new receipt for the transaction, storing the intermediate root and gas used by the tx
 	// based on the eip phase, we're passing whether the root touch-delete accounts.
@@ -136,6 +147,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	receipt.BlockNumber = header.Number
 	receipt.TransactionIndex = uint(statedb.TxIndex())
 
+	//fmt.Println("[TX] Recpt t=", time.Since(timeReceipt))	//[TL] [TX]
 	return receipt, err
 }
 
@@ -144,12 +156,20 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 // for the transaction, gas used and an error if the transaction failed,
 // indicating the block was invalid.
 func ApplyTransaction(config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, cfg vm.Config) (*types.Receipt, error) {
+	//timeApplyTxStart := time.Now()		//[TL] [TX]
 	msg, err := tx.AsMessage(types.MakeSigner(config, header.Number))
+
+	if tx.To() != nil { //[TL] [TX] debug
+		fmt.Println("[TX] TxHash : " + tx.Hash().Hex())
+		fmt.Println("[TX] ToAddr : " + tx.To().Hex())
+	}
+
 	if err != nil {
 		return nil, err
 	}
 	// Create a new context to be used in the EVM environment
 	blockContext := NewEVMBlockContext(header, bc, author)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, config, cfg)
+	//fmt.Println("[TX] NewEVM t=", time.Since(timeApplyTxStart))	//[TL]
 	return applyTransaction(msg, config, bc, author, gp, statedb, header, tx, usedGas, vmenv)
 }

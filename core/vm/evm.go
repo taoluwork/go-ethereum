@@ -221,6 +221,8 @@ func (evm *EVM) Interpreter() Interpreter {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	//evm_start := time.Now() //[TL] [VM]
+	// fmt.Println("[VM] EVM_START: \t", evm_start)
 	if evm.vmConfig.NoRecursion && evm.depth > 0 {
 		return nil, gas, nil
 	}
@@ -232,6 +234,9 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	if value.Sign() != 0 && !evm.Context.CanTransfer(evm.StateDB, caller.Address(), value) {
 		return nil, gas, ErrInsufficientBalance
 	}
+
+	//contract_start := time.Now()		//[TL] [VM]
+
 	snapshot := evm.StateDB.Snapshot()
 	p, isPrecompile := evm.precompile(addr)
 
@@ -247,6 +252,8 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		evm.StateDB.CreateAccount(addr)
 	}
 	evm.Context.Transfer(evm.StateDB, caller.Address(), addr, value)
+
+	//fmt.Println("[VM] initLocal t=", time.Since(contract_start))	//[TL] [VM]
 
 	// Capture the tracer start/end events in debug mode
 	if evm.vmConfig.Debug && evm.depth == 0 {
@@ -286,6 +293,10 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 		//} else {
 		//	evm.StateDB.DiscardSnapshot(snapshot)
 	}
+
+	//evm_elapse := time.Since(start)			//[TL] [VM]
+	//fmt.Println("[VM] EVM elpase: \t", evm_elapse)
+
 	return ret, gas, err
 }
 

@@ -509,7 +509,11 @@ func opSload(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]b
 	loc := callContext.stack.peek()
 	hash := common.Hash(loc.Bytes32())
 	val := interpreter.evm.StateDB.GetState(callContext.contract.Address(), hash)
+	//	fmt.Printf("[OP] LocKey:\t%x\n", common.BigToHash(loc))		//[OP] [TL] display
+	//	fmt.Printf("[OP] opSLOAD:\t%x\n", val)
 	loc.SetBytes(val.Bytes())
+	//trie := StateDB.StorageTrie(contract.Address())	//[TL] [OP]
+	//fmt.Println("[Trie] storage trie :\t", trie)
 	return nil, nil
 }
 
@@ -518,6 +522,8 @@ func opSstore(pc *uint64, interpreter *EVMInterpreter, callContext *callCtx) ([]
 	val := callContext.stack.pop()
 	interpreter.evm.StateDB.SetState(callContext.contract.Address(),
 		loc.Bytes32(), val.Bytes32())
+	//fmt.Printf("[OP] LocKey:\t%x\n", loc)					//[TL] [OP]
+	//fmt.Printf("[OP] opSSTORE:\t%x\n", common.BigToHash(val))
 	return nil, nil
 }
 
