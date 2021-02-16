@@ -17,6 +17,7 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -120,36 +121,28 @@ func runCmd(ctx *cli.Context) error {
 		ret  []byte
 		err  error
 	)
-	codeFileFlag := ctx.GlobalString(CodeFileFlag.Name)
-	codeFlag := ctx.GlobalString(CodeFlag.Name)
-
 	// The '--code' or '--codefile' flag overrides code in state
-	if codeFileFlag != "" || codeFlag != "" {
+	if ctx.GlobalString(CodeFileFlag.Name) != "" {
 		var hexcode []byte
-		if codeFileFlag != "" {
-			var err error
-			// If - is specified, it means that code comes from stdin
-			if codeFileFlag == "-" {
-				//Try reading from stdin
-				if hexcode, err = ioutil.ReadAll(os.Stdin); err != nil {
-					fmt.Printf("Could not load code from stdin: %v\n", err)
-					os.Exit(1)
-				}
-			} else {
-				// Codefile with hex assembly
-				if hexcode, err = ioutil.ReadFile(codeFileFlag); err != nil {
-					fmt.Printf("Could not load code from file: %v\n", err)
-					os.Exit(1)
-				}
+		var err error
+		// If - is specified, it means that code comes from stdin
+		if ctx.GlobalString(CodeFileFlag.Name) == "-" {
+			//Try reading from stdin
+			if hexcode, err = ioutil.ReadAll(os.Stdin); err != nil {
+				fmt.Printf("Could not load code from stdin: %v\n", err)
+				os.Exit(1)
 			}
 		} else {
-			hexcode = []byte(codeFlag)
+			// Codefile with hex assembly
+			if hexcode, err = ioutil.ReadFile(ctx.GlobalString(CodeFileFlag.Name)); err != nil {
+				fmt.Printf("Could not load code from file: %v\n", err)
+				os.Exit(1)
+			}
 		}
-		if len(hexcode)%2 != 0 {
-			fmt.Printf("Invalid input length for hex data (%d)\n", len(hexcode))
-			os.Exit(1)
-		}
-		code = common.FromHex(string(hexcode))
+		code = common.Hex2Bytes(string(bytes.TrimRight(hexcode, "\n")))
+
+	} else if ctx.GlobalString(CodeFlag.Name) != "" {
+		code = common.Hex2Bytes(ctx.GlobalString(CodeFlag.Name))
 	} else if fn := ctx.Args().First(); len(fn) > 0 {
 		// EASM-file to compile
 		src, err := ioutil.ReadFile(fn)
@@ -162,6 +155,7 @@ func runCmd(ctx *cli.Context) error {
 		}
 		code = common.Hex2Bytes(bin)
 	}
+
 	initialGas := ctx.GlobalUint64(GasFlag.Name)
 	if genesisConfig.GasLimit != 0 {
 		initialGas = genesisConfig.GasLimit
@@ -215,7 +209,7 @@ func runCmd(ctx *cli.Context) error {
 	if ctx.GlobalBool(DumpFlag.Name) {
 		statedb.Commit(true)
 		statedb.IntermediateRoot(true)
-		fmt.Println(string(statedb.Dump(false, false, true)))
+		fmt.Println(string(statedb.Dump()))
 	}
 
 	if memProfilePath := ctx.GlobalString(MemProfileFlag.Name); memProfilePath != "" {

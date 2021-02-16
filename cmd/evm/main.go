@@ -21,6 +21,7 @@ import (
 	"fmt"
 	"math/big"
 	"os"
+	"time"
 
 	"github.com/ethereum/go-ethereum/cmd/utils"
 	"gopkg.in/urfave/cli.v1"
@@ -150,8 +151,14 @@ func init() {
 }
 
 func main() {
+	t := time.Now()
+	fmt.Println("App Starting time: ", t.Format("2006-01-02 15:04:05.000000000"), "\n")
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
+	t_end := time.Now()
+	fmt.Println("App Ending time: ", t_end.Format("2006-01-02 15:04:05.000000000"), "\n")
+	elapsed := t_end.Sub(t)
+	fmt.Println("Time elapse = ", elapsed)
 }

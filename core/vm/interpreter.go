@@ -20,6 +20,7 @@ import (
 	"fmt"
 	"hash"
 	"sync/atomic"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -116,6 +117,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // errExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
+	INT_start := time.Now()
 	if in.intPool == nil {
 		in.intPool = poolOfIntPools.get()
 		defer func() {
@@ -141,6 +143,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 	// Don't bother with the execution if there's no code.
 	if len(contract.Code) == 0 {
+		//		fmt.Println("[VM] no code time=", time.Since(INT_start))
 		return nil, nil
 	}
 
@@ -188,6 +191,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		// Get the operation from the jump table and validate the stack to ensure there are
 		// enough stack items available to perform the operation.
 		op = contract.GetOp(pc)
+		//		fmt.Printf("pc  = %d,\top  = %2X\n", int(pc), int(op)) //[OP][VM] //TL debug
 		operation := in.cfg.JumpTable[op]
 		if !operation.valid {
 			return nil, fmt.Errorf("invalid opcode 0x%x", int(op))
@@ -211,6 +215,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		}
 		// Static portion of gas
 		if !contract.UseGas(operation.constantGas) {
+			//fmt.Println("[VM] OOGas time=", time.Since(INT_start))
 			return nil, ErrOutOfGas
 		}
 
@@ -236,6 +241,7 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		if operation.dynamicGas != nil {
 			cost, err = operation.dynamicGas(in.gasTable, in.evm, contract, stack, mem, memorySize)
 			if err != nil || !contract.UseGas(cost) {
+				//fmt.Println("[VM] OOGas time=", time.Since(INT_start))
 				return nil, ErrOutOfGas
 			}
 		}
@@ -263,15 +269,22 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 
 		switch {
 		case err != nil:
+			//fmt.Println("[VM] ExitErr, time=", time.Since(INT_start)) //[TX] return type,
+			fmt.Println("[VM] ExitErr, pc=", pc) //[TX] return type,
 			return nil, err
 		case operation.reverts:
+			//fmt.Println("[VM] ExitRevert time=", time.Since(INT_start)) //[TX] return type,
+			fmt.Println("[VM] ExitRevert, pc=", pc) //[TX] return type,
 			return res, errExecutionReverted
 		case operation.halts:
+			fmt.Println("[VM] Exithalt pc = ", pc, "time=", time.Since(INT_start)) //[TX] return type,
+			fmt.Println("[VM] Exithalt, pc=", pc)                                  //[TX] return type,
 			return res, nil
 		case !operation.jumps:
 			pc++
 		}
 	}
+	//fmt.Println("[VM] ENDofINTP time=", time.Since(INT_start))
 	return nil, nil
 }
 

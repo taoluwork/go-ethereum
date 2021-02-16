@@ -18,6 +18,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -162,10 +163,6 @@ Remove blockchain and state databases`,
 			utils.DataDirFlag,
 			utils.CacheFlag,
 			utils.SyncModeFlag,
-			utils.IterativeOutputFlag,
-			utils.ExcludeCodeFlag,
-			utils.ExcludeStorageFlag,
-			utils.IncludeIncompletesFlag,
 		},
 		Category: "BLOCKCHAIN COMMANDS",
 		Description: `
@@ -176,6 +173,23 @@ Use "ethereum dump 0" to dump the genesis block.`,
 		Action:    utils.MigrateFlags(inspect),
 		Name:      "inspect",
 		Usage:     "Inspect the storage size for each type of data in the database",
+		ArgsUsage: " ",
+		Flags: []cli.Flag{
+			utils.DataDirFlag,
+			utils.AncientFlag,
+			utils.CacheFlag,
+			utils.TestnetFlag,
+			utils.RinkebyFlag,
+			utils.GoerliFlag,
+			utils.SyncModeFlag,
+		},
+		Category: "BLOCKCHAIN COMMANDS",
+	}
+	//[TL] added for rolling back cmd
+	rollbackCommand = cli.Command{
+		Action:    utils.MigrateFlags(rollback),
+		Name:      "rollback",
+		Usage:     "rollback the db to the indicated height",
 		ArgsUsage: " ",
 		Flags: []cli.Flag{
 			utils.DataDirFlag,
@@ -291,7 +305,7 @@ func importChain(ctx *cli.Context) error {
 	fmt.Printf("Allocations:   %.3f million\n", float64(mem.Mallocs)/1000000)
 	fmt.Printf("GC pause:      %v\n\n", time.Duration(mem.PauseTotalNs))
 
-	if ctx.GlobalBool(utils.NoCompactionFlag.Name) {
+	if ctx.GlobalIsSet(utils.NoCompactionFlag.Name) {
 		return nil
 	}
 
@@ -508,7 +522,6 @@ func dump(ctx *cli.Context) error {
 	defer stack.Close()
 
 	chain, chainDb := utils.MakeChain(ctx, stack)
-	defer chainDb.Close()
 	for _, arg := range ctx.Args() {
 		var block *types.Block
 		if hashish(arg) {
@@ -525,20 +538,10 @@ func dump(ctx *cli.Context) error {
 			if err != nil {
 				utils.Fatalf("could not create new state: %v", err)
 			}
-			excludeCode := ctx.Bool(utils.ExcludeCodeFlag.Name)
-			excludeStorage := ctx.Bool(utils.ExcludeStorageFlag.Name)
-			includeMissing := ctx.Bool(utils.IncludeIncompletesFlag.Name)
-			if ctx.Bool(utils.IterativeOutputFlag.Name) {
-				state.IterativeDump(excludeCode, excludeStorage, !includeMissing, json.NewEncoder(os.Stdout))
-			} else {
-				if includeMissing {
-					fmt.Printf("If you want to include accounts with missing preimages, you need iterative output, since" +
-						" otherwise the accounts will overwrite each other in the resulting mapping.")
-				}
-				fmt.Printf("%v %s\n", includeMissing, state.Dump(excludeCode, excludeStorage, false))
-			}
+			fmt.Printf("%s\n", state.Dump())
 		}
 	}
+	chainDb.Close()
 	return nil
 }
 
@@ -556,4 +559,44 @@ func inspect(ctx *cli.Context) error {
 func hashish(x string) bool {
 	_, err := strconv.Atoi(x)
 	return err != nil
+}
+
+//NOTE: add roll back https://github.com/ethereumproject/go-ethereum/pull/206/commits/752fe01823c24f6089123df4a037d86f7656282e
+func rollback(ctx *cli.Context) error {
+	index := ctx.Args().First()
+	if len(index) == 0 {
+		log.Info("missing argument: use `rollback 12345` to specify required block number to roll back to")
+		return errors.New("invalid flag usage")
+	}
+
+	blockIndex, err := strconv.ParseUint(index, 10, 64)
+	if err != nil {
+		log.Info("invalid argument: use `rollback 12345`, were '12345' is a required number specifying which block number to roll back to")
+		return errors.New("invalid flag usage")
+	}
+
+	node, _ := makeConfigNode(ctx)
+	defer node.Close()
+
+	bc, chainDb := utils.MakeChain(ctx, node)
+	defer chainDb.Close()
+
+	//	bc, chainDB := MakeChain(ctx)
+	//	defer chainDB.Close()
+
+	log.Warn("Rolling back blockchain...")
+
+	bc.SetHead(blockIndex)
+	fmt.Printf("Setting current (head) block to: %v\n", blockIndex)
+
+	nowCurrentState := bc.CurrentBlock().Number().Uint64()
+	if nowCurrentState != blockIndex {
+		fmt.Printf("ERROR: Expected rollback to set head to: %v, instead head is: %v\n", blockIndex, nowCurrentState)
+	} else {
+		fmt.Printf("SUCCESS: Head block set to: %v\n", nowCurrentState)
+	}
+
+	return nil
+
+	// TODO: add more contextual information?
 }

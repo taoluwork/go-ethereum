@@ -359,6 +359,7 @@ func (d *Downloader) synchronise(id string, hash common.Hash, td *big.Int, mode 
 	// Post a user notification of the sync (only once per session)
 	if atomic.CompareAndSwapInt32(&d.notified, 0, 1) {
 		log.Info("Block synchronisation started")
+		fmt.Println("[DEBUG] ", time.Now(), " sync start...")
 	}
 	// If we are already full syncing, but have a fast-sync bloom filter laying
 	// around, make sure it does't use memory any more. This is a special case

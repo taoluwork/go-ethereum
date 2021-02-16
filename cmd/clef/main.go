@@ -93,7 +93,7 @@ var (
 	chainIdFlag = cli.Int64Flag{
 		Name:  "chainid",
 		Value: params.MainnetChainConfig.ChainID.Int64(),
-		Usage: "Chain id to use for signing (1=mainnet, 3=Ropsten, 4=Rinkeby, 5=Goerli)",
+		Usage: "Chain id to use for signing (1=mainnet, 3=ropsten, 4=rinkeby, 5=Goerli)",
 	}
 	rpcPortFlag = cli.IntFlag{
 		Name:  "rpcport",
@@ -116,7 +116,8 @@ var (
 	}
 	ruleFlag = cli.StringFlag{
 		Name:  "rules",
-		Usage: "Path to the rule file to auto-authorize requests with",
+		Usage: "Enable rule-engine",
+		Value: "",
 	}
 	stdiouiFlag = cli.BoolFlag{
 		Name: "stdio-ui",
@@ -159,6 +160,7 @@ incoming requests.
 Whenever you make an edit to the rule file, you need to use attestation to tell
 Clef that the file is 'safe' to execute.`,
 	}
+
 	setCredentialCommand = cli.Command{
 		Action:    utils.MigrateFlags(setCredential),
 		Name:      "setpw",
@@ -170,20 +172,8 @@ Clef that the file is 'safe' to execute.`,
 			signerSecretFlag,
 		},
 		Description: `
-The setpw command stores a password for a given address (keyfile).
-`}
-	delCredentialCommand = cli.Command{
-		Action:    utils.MigrateFlags(removeCredential),
-		Name:      "delpw",
-		Usage:     "Remove a credential for a keystore file",
-		ArgsUsage: "<address>",
-		Flags: []cli.Flag{
-			logLevelFlag,
-			configdirFlag,
-			signerSecretFlag,
-		},
-		Description: `
-The delpw command removes a password for a given address (keyfile).
+The setpw command stores a password for a given address (keyfile). If you enter a blank passphrase, it will
+remove any stored credential for that address (keyfile)
 `}
 	gendocCommand = cli.Command{
 		Action: GenDoc,
@@ -220,9 +210,9 @@ func init() {
 		advancedMode,
 	}
 	app.Action = signer
-	app.Commands = []cli.Command{initCommand, attestCommand, setCredentialCommand, delCredentialCommand, gendocCommand}
-}
+	app.Commands = []cli.Command{initCommand, attestCommand, setCredentialCommand, gendocCommand}
 
+}
 func main() {
 	if err := app.Run(os.Args); err != nil {
 		fmt.Fprintln(os.Stderr, err)
@@ -231,20 +221,11 @@ func main() {
 }
 
 func initializeSecrets(c *cli.Context) error {
-	// Get past the legal message
 	if err := initialize(c); err != nil {
 		return err
 	}
-	// Ensure the master key does not yet exist, we're not willing to overwrite
 	configDir := c.GlobalString(configdirFlag.Name)
-	if err := os.Mkdir(configDir, 0700); err != nil && !os.IsExist(err) {
-		return err
-	}
-	location := filepath.Join(configDir, "masterseed.json")
-	if _, err := os.Stat(location); err == nil {
-		return fmt.Errorf("master key %v already exists, will not overwrite", location)
-	}
-	// Key file does not exist yet, generate a new one and encrypt it
+
 	masterSeed := make([]byte, 256)
 	num, err := io.ReadFull(rand.Reader, masterSeed)
 	if err != nil {
@@ -253,18 +234,18 @@ func initializeSecrets(c *cli.Context) error {
 	if num != len(masterSeed) {
 		return fmt.Errorf("failed to read enough random")
 	}
+
 	n, p := keystore.StandardScryptN, keystore.StandardScryptP
 	if c.GlobalBool(utils.LightKDFFlag.Name) {
 		n, p = keystore.LightScryptN, keystore.LightScryptP
 	}
-	text := "The master seed of clef will be locked with a password.\nPlease specify a password. Do not forget this password!"
+	text := "The master seed of clef is locked with a password. Please give a password. Do not forget this password."
 	var password string
 	for {
 		password = getPassPhrase(text, true)
 		if err := core.ValidatePasswordFormat(password); err != nil {
 			fmt.Printf("invalid password: %v\n", err)
 		} else {
-			fmt.Println()
 			break
 		}
 	}
@@ -272,27 +253,28 @@ func initializeSecrets(c *cli.Context) error {
 	if err != nil {
 		return fmt.Errorf("failed to encrypt master seed: %v", err)
 	}
-	// Double check the master key path to ensure nothing wrote there in between
-	if err = os.Mkdir(configDir, 0700); err != nil && !os.IsExist(err) {
+
+	err = os.Mkdir(configDir, 0700)
+	if err != nil && !os.IsExist(err) {
 		return err
 	}
+	location := filepath.Join(configDir, "masterseed.json")
 	if _, err := os.Stat(location); err == nil {
-		return fmt.Errorf("master key %v already exists, will not overwrite", location)
+		return fmt.Errorf("file %v already exists, will not overwrite", location)
 	}
-	// Write the file and print the usual warning message
-	if err = ioutil.WriteFile(location, cipherSeed, 0400); err != nil {
+	err = ioutil.WriteFile(location, cipherSeed, 0400)
+	if err != nil {
 		return err
 	}
 	fmt.Printf("A master seed has been generated into %s\n", location)
 	fmt.Printf(`
-This is required to be able to store credentials, such as:
+This is required to be able to store credentials, such as :
 * Passwords for keystores (used by rule engine)
-* Storage for JavaScript auto-signing rules
-* Hash of JavaScript rule-file
+* Storage for javascript rules
+* Hash of rule-file
 
-You should treat 'masterseed.json' with utmost secrecy and make a backup of it!
-* The password is necessary but not enough, you need to back up the master seed too!
-* The master seed does not contain your accounts, those need to be backed up separately!
+You should treat that file with utmost secrecy, and make a backup of it.
+NOTE: This file does not contain your accounts. Those need to be backed up separately!
 
 `)
 	return nil
@@ -323,18 +305,14 @@ func attestFile(ctx *cli.Context) error {
 
 func setCredential(ctx *cli.Context) error {
 	if len(ctx.Args()) < 1 {
-		utils.Fatalf("This command requires an address to be passed as an argument")
+		utils.Fatalf("This command requires an address to be passed as an argument.")
 	}
 	if err := initialize(ctx); err != nil {
 		return err
 	}
-	addr := ctx.Args().First()
-	if !common.IsHexAddress(addr) {
-		utils.Fatalf("Invalid address specified: %s", addr)
-	}
-	address := common.HexToAddress(addr)
-	password := getPassPhrase("Please enter a passphrase to store for this address:", true)
-	fmt.Println()
+
+	address := ctx.Args().First()
+	password := getPassPhrase("Enter a passphrase to store with this address.", true)
 
 	stretchedKey, err := readMasterKey(ctx, nil)
 	if err != nil {
@@ -344,38 +322,10 @@ func setCredential(ctx *cli.Context) error {
 	vaultLocation := filepath.Join(configDir, common.Bytes2Hex(crypto.Keccak256([]byte("vault"), stretchedKey)[:10]))
 	pwkey := crypto.Keccak256([]byte("credentials"), stretchedKey)
 
+	// Initialize the encrypted storages
 	pwStorage := storage.NewAESEncryptedStorage(filepath.Join(vaultLocation, "credentials.json"), pwkey)
-	pwStorage.Put(address.Hex(), password)
-
-	log.Info("Credential store updated", "set", address)
-	return nil
-}
-
-func removeCredential(ctx *cli.Context) error {
-	if len(ctx.Args()) < 1 {
-		utils.Fatalf("This command requires an address to be passed as an argument")
-	}
-	if err := initialize(ctx); err != nil {
-		return err
-	}
-	addr := ctx.Args().First()
-	if !common.IsHexAddress(addr) {
-		utils.Fatalf("Invalid address specified: %s", addr)
-	}
-	address := common.HexToAddress(addr)
-
-	stretchedKey, err := readMasterKey(ctx, nil)
-	if err != nil {
-		utils.Fatalf(err.Error())
-	}
-	configDir := ctx.GlobalString(configdirFlag.Name)
-	vaultLocation := filepath.Join(configDir, common.Bytes2Hex(crypto.Keccak256([]byte("vault"), stretchedKey)[:10]))
-	pwkey := crypto.Keccak256([]byte("credentials"), stretchedKey)
-
-	pwStorage := storage.NewAESEncryptedStorage(filepath.Join(vaultLocation, "credentials.json"), pwkey)
-	pwStorage.Del(address.Hex())
-
-	log.Info("Credential store updated", "unset", address)
+	pwStorage.Put(address, password)
+	log.Info("Credential store updated", "key", address)
 	return nil
 }
 
@@ -390,17 +340,13 @@ func initialize(c *cli.Context) error {
 		if !confirm(legalWarning) {
 			return fmt.Errorf("aborted by user")
 		}
-		fmt.Println()
 	}
+
 	log.Root().SetHandler(log.LvlFilterHandler(log.Lvl(c.Int(logLevelFlag.Name)), log.StreamHandler(logOutput, log.TerminalFormat(true))))
 	return nil
 }
 
 func signer(c *cli.Context) error {
-	// If we have some unrecognized command, bail out
-	if args := c.Args(); len(args) > 0 {
-		return fmt.Errorf("invalid command: %q", args[0])
-	}
 	if err := initialize(c); err != nil {
 		return err
 	}
@@ -430,7 +376,7 @@ func signer(c *cli.Context) error {
 
 	configDir := c.GlobalString(configdirFlag.Name)
 	if stretchedKey, err := readMasterKey(c, ui); err != nil {
-		log.Warn("Failed to open master, rules disabled", "err", err)
+		log.Info("No master seed provided, rules disabled", "error", err)
 	} else {
 		vaultLocation := filepath.Join(configDir, common.Bytes2Hex(crypto.Keccak256([]byte("vault"), stretchedKey)[:10]))
 
@@ -444,17 +390,17 @@ func signer(c *cli.Context) error {
 		jsStorage := storage.NewAESEncryptedStorage(filepath.Join(vaultLocation, "jsstorage.json"), jskey)
 		configStorage := storage.NewAESEncryptedStorage(filepath.Join(vaultLocation, "config.json"), confkey)
 
-		// Do we have a rule-file?
+		//Do we have a rule-file?
 		if ruleFile := c.GlobalString(ruleFlag.Name); ruleFile != "" {
-			ruleJS, err := ioutil.ReadFile(ruleFile)
+			ruleJS, err := ioutil.ReadFile(c.GlobalString(ruleFile))
 			if err != nil {
-				log.Warn("Could not load rules, disabling", "file", ruleFile, "err", err)
+				log.Info("Could not load rulefile, rules not enabled", "file", "rulefile")
 			} else {
 				shasum := sha256.Sum256(ruleJS)
 				foundShaSum := hex.EncodeToString(shasum[:])
-				storedShasum, _ := configStorage.Get("ruleset_sha256")
+				storedShasum := configStorage.Get("ruleset_sha256")
 				if storedShasum != foundShaSum {
-					log.Warn("Rule hash not attested, disabling", "hash", foundShaSum, "attested", storedShasum)
+					log.Info("Could not validate ruleset hash, rules not enabled", "got", foundShaSum, "expected", storedShasum)
 				} else {
 					// Initialize rules
 					ruleEngine, err := rules.NewRuleEvaluator(ui, jsStorage)
@@ -506,6 +452,7 @@ func signer(c *cli.Context) error {
 			Version:   "1.0"},
 	}
 	if c.GlobalBool(utils.RPCEnabledFlag.Name) {
+
 		vhosts := splitAndTrim(c.GlobalString(utils.RPCVirtualHostsFlag.Name))
 		cors := splitAndTrim(c.GlobalString(utils.RPCCORSDomainFlag.Name))
 
@@ -522,6 +469,7 @@ func signer(c *cli.Context) error {
 			listener.Close()
 			log.Info("HTTP endpoint closed", "url", httpEndpoint)
 		}()
+
 	}
 	if !c.GlobalBool(utils.IPCDisabledFlag.Name) {
 		if c.IsSet(utils.IPCPathFlag.Name) {
@@ -548,8 +496,8 @@ func signer(c *cli.Context) error {
 	}
 	ui.OnSignerStartup(core.StartupInfo{
 		Info: map[string]interface{}{
-			"intapi_version": core.InternalAPIVersion,
 			"extapi_version": core.ExternalAPIVersion,
+			"intapi_version": core.InternalAPIVersion,
 			"extapi_http":    extapiURL,
 			"extapi_ipc":     ipcapiURL,
 		},
@@ -644,6 +592,7 @@ func readMasterKey(ctx *cli.Context, ui core.UIClientAPI) ([]byte, error) {
 	if len(masterSeed) < 256 {
 		return nil, fmt.Errorf("master seed of insufficient length, expected >255 bytes, got %d", len(masterSeed))
 	}
+
 	// Create vault location
 	vaultLocation := filepath.Join(configDir, common.Bytes2Hex(crypto.Keccak256([]byte("vault"), masterSeed)[:10]))
 	err = os.Mkdir(vaultLocation, 0700)
@@ -671,12 +620,13 @@ func checkFile(filename string) error {
 // confirm displays a text and asks for user confirmation
 func confirm(text string) bool {
 	fmt.Printf(text)
-	fmt.Printf("\nEnter 'ok' to proceed:\n> ")
+	fmt.Printf("\nEnter 'ok' to proceed:\n>")
 
 	text, err := bufio.NewReader(os.Stdin).ReadString('\n')
 	if err != nil {
 		log.Crit("Failed to read user input", "err", err)
 	}
+
 	if text := strings.TrimSpace(text); text == "ok" {
 		return true
 	}
@@ -692,7 +642,7 @@ func testExternalUI(api *core.SignerAPI) {
 
 	a := common.HexToAddress("0xdeadbeef000000000000000000000000deadbeef")
 	addErr := func(errStr string) {
-		log.Info("Test error", "err", errStr)
+		log.Info("Test error", "error", errStr)
 		errs = append(errs, errStr)
 	}
 
@@ -914,14 +864,14 @@ func GenDoc(ctx *cli.Context) {
 			"of the work in canonicalizing and making sense of the data, and it's up to the UI to present" +
 			"the user with the contents of the `message`"
 		sighash, msg := accounts.TextAndHash([]byte("hello world"))
-		messages := []*core.NameValueType{{"message", msg, accounts.MimetypeTextPlain}}
+		message := []*core.NameValueType{{"message", msg, accounts.MimetypeTextPlain}}
 
 		add("SignDataRequest", desc, &core.SignDataRequest{
 			Address:     common.NewMixedcaseAddress(a),
 			Meta:        meta,
 			ContentType: accounts.MimetypeTextPlain,
 			Rawdata:     []byte(msg),
-			Messages:    messages,
+			Message:     message,
 			Hash:        sighash})
 	}
 	{ // Sign plain text response
@@ -1032,3 +982,29 @@ These data types are defined in the channel between clef and the UI`)
 		fmt.Println(elem)
 	}
 }
+
+/**
+//Create Account
+
+curl -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"account_new","params":["test"],"id":67}' localhost:8550
+
+// List accounts
+
+curl -i -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"account_list","params":[""],"id":67}' http://localhost:8550/
+
+// Make Transaction
+// safeSend(0x12)
+// 4401a6e40000000000000000000000000000000000000000000000000000000000000012
+
+// supplied abi
+curl -i -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"account_signTransaction","params":[{"from":"0x82A2A876D39022B3019932D30Cd9c97ad5616813","gas":"0x333","gasPrice":"0x123","nonce":"0x0","to":"0x07a565b7ed7d7a678680a4c162885bedbb695fe0", "value":"0x10", "data":"0x4401a6e40000000000000000000000000000000000000000000000000000000000000012"},"test"],"id":67}' http://localhost:8550/
+
+// Not supplied
+curl -i -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"account_signTransaction","params":[{"from":"0x82A2A876D39022B3019932D30Cd9c97ad5616813","gas":"0x333","gasPrice":"0x123","nonce":"0x0","to":"0x07a565b7ed7d7a678680a4c162885bedbb695fe0", "value":"0x10", "data":"0x4401a6e40000000000000000000000000000000000000000000000000000000000000012"}],"id":67}' http://localhost:8550/
+
+// Sign data
+
+curl -i -H "Content-Type: application/json" -X POST --data '{"jsonrpc":"2.0","method":"account_sign","params":["0x694267f14675d7e1b9494fd8d72fefe1755710fa","bazonk gaz baz"],"id":67}' http://localhost:8550/
+
+
+**/

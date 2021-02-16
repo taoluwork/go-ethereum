@@ -169,11 +169,6 @@ func (evm *EVM) Cancel() {
 	atomic.StoreInt32(&evm.abort, 1)
 }
 
-// Cancelled returns true if Cancel has been called
-func (evm *EVM) Cancelled() bool {
-	return atomic.LoadInt32(&evm.abort) == 1
-}
-
 // Interpreter returns the current interpreter
 func (evm *EVM) Interpreter() Interpreter {
 	return evm.interpreter
@@ -184,6 +179,8 @@ func (evm *EVM) Interpreter() Interpreter {
 // the necessary steps to create accounts and reverses the state in case of an
 // execution error or failed value transfer.
 func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas uint64, value *big.Int) (ret []byte, leftOverGas uint64, err error) {
+	//evm_start := time.Now()
+	// fmt.Println("[VM] EVM_START: \t", evm_start)
 	if evm.vmConfig.NoRecursion && evm.depth > 0 {
 		return nil, gas, nil
 	}
@@ -196,7 +193,7 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	if !evm.Context.CanTransfer(evm.StateDB, caller.Address(), value) {
 		return nil, gas, ErrInsufficientBalance
 	}
-
+	//contract_start := time.Now()
 	var (
 		to       = AccountRef(addr)
 		snapshot = evm.StateDB.Snapshot()
@@ -222,6 +219,8 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 	contract := NewContract(caller, to, value, gas)
 	contract.SetCallCode(&addr, evm.StateDB.GetCodeHash(addr), evm.StateDB.GetCode(addr))
 
+	//fmt.Println("[VM] initLocal t=", time.Since(contract_start))
+
 	// Even if the account has no code, we need to continue because it might be a precompile
 	start := time.Now()
 
@@ -244,6 +243,10 @@ func (evm *EVM) Call(caller ContractRef, addr common.Address, input []byte, gas 
 			contract.UseGas(contract.Gas)
 		}
 	}
+	//evm_end := time.Now()
+	//fmt.Println("[VM] EVM_END: \t", evm_end)
+	//evm_elapse := time.Since(start)
+	//fmt.Println("[VM] EVM elpase: \t", evm_elapse)
 	return ret, contract.Gas, err
 }
 

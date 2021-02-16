@@ -25,6 +25,7 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/ethereum/go-ethereum/accounts"
 	"github.com/ethereum/go-ethereum/core/rawdb"
@@ -160,6 +161,7 @@ func (n *Node) Register(constructor ServiceConstructor) error {
 
 // Start create a live P2P node and starts running it.
 func (n *Node) Start() error {
+	fmt.Println("[DEBUG]", time.Now(), " bootup -- 4 p2p node start")
 	n.lock.Lock()
 	defer n.lock.Unlock()
 
@@ -247,6 +249,7 @@ func (n *Node) Start() error {
 	n.services = services
 	n.server = running
 	n.stop = make(chan struct{})
+
 	return nil
 }
 
@@ -256,6 +259,7 @@ func (n *Node) Config() *Config {
 }
 
 func (n *Node) openDataDir() error {
+	fmt.Println("[DEBUG] ", time.Now(), " open data dir..")
 	if n.config.DataDir == "" {
 		return nil // ephemeral
 	}

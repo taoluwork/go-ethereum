@@ -21,7 +21,6 @@ import (
 	"fmt"
 	"math"
 	"os"
-	"runtime"
 	godebug "runtime/debug"
 	"sort"
 	"strconv"
@@ -38,7 +37,7 @@ import (
 	"github.com/ethereum/go-ethereum/eth/downloader"
 	"github.com/ethereum/go-ethereum/ethclient"
 	"github.com/ethereum/go-ethereum/internal/debug"
-	"github.com/ethereum/go-ethereum/les"
+
 	"github.com/ethereum/go-ethereum/log"
 	"github.com/ethereum/go-ethereum/metrics"
 	"github.com/ethereum/go-ethereum/node"
@@ -90,19 +89,18 @@ var (
 		utils.TxPoolAccountQueueFlag,
 		utils.TxPoolGlobalQueueFlag,
 		utils.TxPoolLifetimeFlag,
+		utils.ULCModeConfigFlag,
+		utils.OnlyAnnounceModeFlag,
+		utils.ULCTrustedNodesFlag,
+		utils.ULCMinTrustedFractionFlag,
 		utils.SyncModeFlag,
 		utils.ExitWhenSyncedFlag,
 		utils.GCModeFlag,
-		utils.LightServeFlag,
-		utils.LightLegacyServFlag,
-		utils.LightIngressFlag,
-		utils.LightEgressFlag,
-		utils.LightMaxPeersFlag,
-		utils.LightLegacyPeersFlag,
+		utils.LightServFlag,
+		utils.LightBandwidthInFlag,
+		utils.LightBandwidthOutFlag,
+		utils.LightPeersFlag,
 		utils.LightKDFFlag,
-		utils.UltraLightServersFlag,
-		utils.UltraLightFractionFlag,
-		utils.UltraLightOnlyAnnounceFlag,
 		utils.WhitelistFlag,
 		utils.CacheFlag,
 		utils.CacheDatabaseFlag,
@@ -140,6 +138,7 @@ var (
 		utils.GoerliFlag,
 		utils.VMEnableDebugFlag,
 		utils.NetworkIdFlag,
+		utils.ConstantinopleOverrideFlag,
 		utils.EthStatsURLFlag,
 		utils.FakePoWFlag,
 		utils.NoCompactionFlag,
@@ -193,6 +192,7 @@ var (
 )
 
 func init() {
+	fmt.Println("[DEBUG] ", time.Now(), " bootup -- 1 init...")
 	// Initialize the CLI app and start Geth
 	app.Action = geth
 	app.HideVersion = true // we have a command to print the version
@@ -224,6 +224,8 @@ func init() {
 		dumpConfigCommand,
 		// See retesteth.go
 		retestethCommand,
+
+		rollbackCommand, //[TL] added see chaincmd.go
 	}
 	sort.Sort(cli.CommandsByName(app.Commands))
 
@@ -258,15 +260,11 @@ func init() {
 		}
 		// Cap the cache allowance and tune the garbage collector
 		var mem gosigar.Mem
-		// Workaround until OpenBSD support lands into gosigar
-		// Check https://github.com/elastic/gosigar#supported-platforms
-		if runtime.GOOS != "openbsd" {
-			if err := mem.Get(); err == nil {
-				allowance := int(mem.Total / 1024 / 1024 / 3)
-				if cache := ctx.GlobalInt(utils.CacheFlag.Name); cache > allowance {
-					log.Warn("Sanitizing cache to Go's GC limits", "provided", cache, "updated", allowance)
-					ctx.GlobalSet(utils.CacheFlag.Name, strconv.Itoa(allowance))
-				}
+		if err := mem.Get(); err == nil {
+			allowance := int(mem.Total / 1024 / 1024 / 3)
+			if cache := ctx.GlobalInt(utils.CacheFlag.Name); cache > allowance {
+				log.Warn("Sanitizing cache to Go's GC limits", "provided", cache, "updated", allowance)
+				ctx.GlobalSet(utils.CacheFlag.Name, strconv.Itoa(allowance))
 			}
 		}
 		// Ensure Go's GC ignores the database cache for trigger percentage
@@ -294,6 +292,7 @@ func init() {
 
 func main() {
 	if err := app.Run(os.Args); err != nil {
+		print("[DEBUG] bootup -- 2")
 		fmt.Fprintln(os.Stderr, err)
 		os.Exit(1)
 	}
@@ -308,6 +307,7 @@ func geth(ctx *cli.Context) error {
 	}
 	node := makeFullNode(ctx)
 	defer node.Close()
+	fmt.Println("[DEBUG] ", time.Now(), " bootup -- 3")
 	startNode(ctx, node)
 	node.Wait()
 	return nil
@@ -329,33 +329,14 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 	events := make(chan accounts.WalletEvent, 16)
 	stack.AccountManager().Subscribe(events)
 
-	// Create a client to interact with local geth node.
-	rpcClient, err := stack.Attach()
-	if err != nil {
-		utils.Fatalf("Failed to attach to self: %v", err)
-	}
-	ethClient := ethclient.NewClient(rpcClient)
-
-	// Set contract backend for ethereum service if local node
-	// is serving LES requests.
-	if ctx.GlobalInt(utils.LightLegacyServFlag.Name) > 0 || ctx.GlobalInt(utils.LightServeFlag.Name) > 0 {
-		var ethService *eth.Ethereum
-		if err := stack.Service(&ethService); err != nil {
-			utils.Fatalf("Failed to retrieve ethereum service: %v", err)
-		}
-		ethService.SetContractBackend(ethClient)
-	}
-	// Set contract backend for les service if local node is
-	// running as a light client.
-	if ctx.GlobalString(utils.SyncModeFlag.Name) == "light" {
-		var lesService *les.LightEthereum
-		if err := stack.Service(&lesService); err != nil {
-			utils.Fatalf("Failed to retrieve light ethereum service: %v", err)
-		}
-		lesService.SetContractBackend(ethClient)
-	}
-
 	go func() {
+		// Create a chain state reader for self-derivation
+		rpcClient, err := stack.Attach()
+		if err != nil {
+			utils.Fatalf("Failed to attach to self: %v", err)
+		}
+		stateReader := ethclient.NewClient(rpcClient)
+
 		// Open any wallets already attached
 		for _, wallet := range stack.AccountManager().Wallets() {
 			if err := wallet.Open(""); err != nil {
@@ -379,7 +360,7 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 				}
 				derivationPaths = append(derivationPaths, accounts.DefaultBaseDerivationPath)
 
-				event.Wallet.SelfDerive(derivationPaths, ethClient)
+				event.Wallet.SelfDerive(derivationPaths, stateReader)
 
 			case accounts.WalletDropped:
 				log.Info("Old wallet dropped", "url", event.Wallet.URL())
@@ -408,6 +389,7 @@ func startNode(ctx *cli.Context, stack *node.Node) {
 						"age", common.PrettyAge(timestamp))
 					stack.Stop()
 				}
+
 			}
 		}()
 	}
