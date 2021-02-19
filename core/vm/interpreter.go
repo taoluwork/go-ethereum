@@ -17,10 +17,8 @@
 package vm
 
 import (
-	"fmt"
 	"hash"
 	"sync/atomic"
-	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/common/math"
@@ -141,7 +139,7 @@ func NewEVMInterpreter(evm *EVM, cfg Config) *EVMInterpreter {
 // considered a revert-and-consume-all-gas operation except for
 // ErrExecutionReverted which means revert-and-keep-gas-left.
 func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (ret []byte, err error) {
-	INT_start := time.Now() //[TL] [VM] start of evmRun
+	//INT_start := time.Now() //[TL] [VM] start of evmRun
 
 	// Increment the call depth which is restricted to 1024
 	in.evm.depth++
@@ -301,15 +299,15 @@ func (in *EVMInterpreter) Run(contract *Contract, input []byte, readOnly bool) (
 		switch {
 		case err != nil:
 			//fmt.Println("[VM] ExitErr, time=", time.Since(INT_start)) //[TX] [TL] return type,
-			fmt.Println("[VM] ExitErr, pc=", pc) //[TX] return type,
+			//fmt.Println("[VM] ExitErr, pc=", pc) //[TX] return type,
 			return nil, err
 		case operation.reverts:
 			//fmt.Println("[VM] ExitRevert time=", time.Since(INT_start)) //[TX] [TL] return type,
-			fmt.Println("[VM] ExitRevert, pc=", pc) //[TX] return type,
+			//fmt.Println("[VM] ExitRevert, pc=", pc) //[TX] return type,
 			return res, ErrExecutionReverted
 		case operation.halts:
-			fmt.Println("[VM] Exithalt pc = ", pc, "time=", time.Since(INT_start)) //[TX] [TL] return type,
-			fmt.Println("[VM] Exithalt, pc=", pc)                                  //[TX] return type,
+			//fmt.Println("[VM] Exithalt pc = ", pc, "time=", time.Since(INT_start)) //[TX] [TL] return type,
+			//fmt.Println("[VM] Exithalt, pc=", pc)                                  //[TX] return type,
 			return res, nil
 		case !operation.jumps:
 			pc++

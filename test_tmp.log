@@ -1,0 +1,23 @@
+INFO [02-16|15:49:52.619] Starting Geth on Ethereum mainnet... 
+INFO [02-16|15:49:52.619] Bumping default cache on mainnet         provided=1024 updated=4096
+INFO [02-16|15:49:52.620] Maximum peer count                       ETH=50 LES=0 total=50
+INFO [02-16|15:49:52.636] Set global gas cap                       cap=25000000
+INFO [02-16|15:49:52.636] Allocated trie memory caches             clean=1023.00MiB dirty=1024.00MiB
+INFO [02-16|15:49:52.636] Allocated cache and file handles         database=/home/taurus/blockchain/gitRepo/go-ethereum/geth/chaindata cache=2.00GiB handles=524288
+INFO [02-16|15:49:52.794] Opened ancient database                  database=/home/taurus/blockchain/gitRepo/go-ethereum/geth/chaindata/ancient
+INFO [02-16|15:49:52.794] Writing default main-net genesis block 
+INFO [02-16|15:49:52.954] Persisted trie from memory database      nodes=12356 size=1.78MiB time=32.498662ms gcnodes=0 gcsize=0.00B gctime=0s livenodes=1 livesize=0.00B
+INFO [02-16|15:49:52.954] Initialised chain configuration          config="{ChainID: 1 Homestead: 1150000 DAO: 1920000 DAOSupport: true EIP150: 2463000 EIP155: 2675000 EIP158: 2675000 Byzantium: 4370000 Constantinople: 7280000 Petersburg: 7280000 Istanbul: 9069000, Muir Glacier: 9200000, YOLO v2: <nil>, Engine: ethash}"
+INFO [02-16|15:49:52.954] Disk storage enabled for ethash caches   dir=/home/taurus/blockchain/gitRepo/go-ethereum/geth/ethash count=3
+INFO [02-16|15:49:52.954] Disk storage enabled for ethash DAGs     dir=/home/taurus/.ethash count=2
+INFO [02-16|15:49:52.954] Initialising Ethereum protocol           versions="[65 64 63]" network=1 dbversion=<nil>
+WARN [02-16|15:49:52.954] Upgrade blockchain database version      from=<nil> to=8
+INFO [02-16|15:49:52.955] Loaded most recent local header          number=0 hash="d4e567…cb8fa3" td=17179869184 age=51y10mo2w
+INFO [02-16|15:49:52.955] Loaded most recent local full block      number=0 hash="d4e567…cb8fa3" td=17179869184 age=51y10mo2w
+INFO [02-16|15:49:52.955] Loaded most recent local fast block      number=0 hash="d4e567…cb8fa3" td=17179869184 age=51y10mo2w
+INFO [02-16|15:49:52.955] Regenerated local transaction journal    transactions=0 accounts=0
+INFO [02-16|15:49:52.955] Starting peer-to-peer node               instance="Geth/v1.9.25-stable -> [TL v1.2.1]-192f0248/linux-amd64/go1.15.7"
+INFO [02-16|15:49:52.985] New local node record                    seq=1 id=f0e7b206f4d26af0 ip=127.0.0.1 udp=30303 tcp=30303
+INFO [02-16|15:49:52.986] Started P2P networking                   self=enode://2f4e507cc58e666a0a4fb3a4ad0b48cb56511d7f64cf4d98da69dd2a2c9d1fa0f7a9c909ce342078febcfc3ce3b8f7487c3d9a9aaf934c8399910f6b9bd07630@127.0.0.1:30303
+INFO [02-16|15:49:52.986] IPC endpoint opened                      url=/home/taurus/blockchain/gitRepo/go-ethereum/geth.ipc
+INFO [02-16|15:49:55.160] New local node record                    seq=2 id=f0e7b206f4d26af0 ip=130.39.223.209 udp=30303 tcp=30303

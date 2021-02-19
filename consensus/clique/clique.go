@@ -20,6 +20,7 @@ package clique
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"io"
 	"math/big"
 	"math/rand"
@@ -223,9 +224,11 @@ func (c *Clique) VerifyHeader(chain consensus.ChainHeaderReader, header *types.H
 func (c *Clique) VerifyHeaders(chain consensus.ChainHeaderReader, headers []*types.Header, seals []bool) (chan<- struct{}, <-chan error) {
 	abort := make(chan struct{})
 	results := make(chan error, len(headers))
-
+	//fmt.Println("Header Verification started in another go routine!") //<== [TL] start point for verification
 	go func() {
+
 		for i, header := range headers {
+
 			err := c.verifyHeader(chain, header, headers[:i])
 
 			select {
@@ -246,57 +249,71 @@ func (c *Clique) verifyHeader(chain consensus.ChainHeaderReader, header *types.H
 	if header.Number == nil {
 		return errUnknownBlock
 	}
+	fmt.Println("verifyHeader started, code 0") //<== [TL] check the verify header
 	number := header.Number.Uint64()
 
 	// Don't waste time checking blocks from the future
 	if header.Time > uint64(time.Now().Unix()) {
+		fmt.Println("verifyHeader skipped, code 1")
 		return consensus.ErrFutureBlock
 	}
 	// Checkpoint blocks need to enforce zero beneficiary
 	checkpoint := (number % c.config.Epoch) == 0
 	if checkpoint && header.Coinbase != (common.Address{}) {
+		fmt.Println("verifyHeader skipped, code 2")
 		return errInvalidCheckpointBeneficiary
 	}
 	// Nonces must be 0x00..0 or 0xff..f, zeroes enforced on checkpoints
 	if !bytes.Equal(header.Nonce[:], nonceAuthVote) && !bytes.Equal(header.Nonce[:], nonceDropVote) {
+		fmt.Println("verifyHeader skipped, code 3")
 		return errInvalidVote
 	}
 	if checkpoint && !bytes.Equal(header.Nonce[:], nonceDropVote) {
+		fmt.Println("verifyHeader skipped, code 4")
 		return errInvalidCheckpointVote
 	}
 	// Check that the extra-data contains both the vanity and signature
 	if len(header.Extra) < extraVanity {
+		fmt.Println("verifyHeader skipped, code 5")
 		return errMissingVanity
 	}
 	if len(header.Extra) < extraVanity+extraSeal {
+		fmt.Println("verifyHeader skipped, code 6")
 		return errMissingSignature
 	}
 	// Ensure that the extra-data contains a signer list on checkpoint, but none otherwise
 	signersBytes := len(header.Extra) - extraVanity - extraSeal
 	if !checkpoint && signersBytes != 0 {
+		fmt.Println("verifyHeader skipped, code 7")
 		return errExtraSigners
 	}
 	if checkpoint && signersBytes%common.AddressLength != 0 {
+		fmt.Println("verifyHeader skipped, code 8")
 		return errInvalidCheckpointSigners
 	}
 	// Ensure that the mix digest is zero as we don't have fork protection currently
 	if header.MixDigest != (common.Hash{}) {
+		fmt.Println("verifyHeader skipped, code 9")
 		return errInvalidMixDigest
 	}
 	// Ensure that the block doesn't contain any uncles which are meaningless in PoA
 	if header.UncleHash != uncleHash {
+		fmt.Println("verifyHeader skipped, code 10")
 		return errInvalidUncleHash
 	}
 	// Ensure that the block's difficulty is meaningful (may not be correct at this point)
 	if number > 0 {
 		if header.Difficulty == nil || (header.Difficulty.Cmp(diffInTurn) != 0 && header.Difficulty.Cmp(diffNoTurn) != 0) {
+			fmt.Println("verifyHeader skipped, code 11")
 			return errInvalidDifficulty
 		}
 	}
 	// If all checks passed, validate any special fields for hard forks
 	if err := misc.VerifyForkHashes(chain.Config(), header, false); err != nil {
+		fmt.Println("verifyHeader skipped, code 12")
 		return err
 	}
+	fmt.Println("verifyHeader skipped, code 13")
 	// All basic checks passed, verify cascading fields
 	return c.verifyCascadingFields(chain, header, parents)
 }

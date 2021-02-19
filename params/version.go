@@ -36,7 +36,7 @@ var Version = func() string {
 var VersionWithMeta = func() string {
 	v := Version
 	if VersionMeta != "" {
-		v += "-" + VersionMeta
+		v += "-" + VersionMeta + " -> [TL v1.3]" //[TL] mark my updated version
 	}
 	return v
 }()
