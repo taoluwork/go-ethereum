@@ -1672,7 +1672,7 @@ func (d *Downloader) processFullSyncContent() error {
 }
 
 func (d *Downloader) importBlockResults(results []*fetchResult) error {
-	fmt.Println("top importBlock downloader") // <== [TL] [debug]
+	fmt.Println("Downloader importBlockResults") // <== [TL] [debug]
 	// Check for any early termination requests
 	if len(results) == 0 {
 		return nil

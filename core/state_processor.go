@@ -18,6 +18,7 @@ package core
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/ethereum/go-ethereum/common"
 	"github.com/ethereum/go-ethereum/consensus"
@@ -48,6 +49,19 @@ func NewStateProcessor(config *params.ChainConfig, bc *BlockChain, engine consen
 	}
 }
 
+//<== [TL] [TX] timer and counter for Tx level debug
+var (
+	totalBLInit    = time.Duration(0) //<== [TL] [BL] timers per block
+	totalBLDB      = time.Duration(0)
+	totalBLApplyTx = time.Duration(0)
+	totalBLFinal   = time.Duration(0)
+
+	totalTxReset  = time.Duration(0) //<== [TL] [TX] timer per tx
+	totalApplyMsg = time.Duration(0)
+	totalTxFinal  = time.Duration(0)
+	totalTxRecpt  = time.Duration(0)
+)
+
 // Process processes the state changes according to the Ethereum rules by running
 // the transaction messages using the statedb and applying any rewards to both
 // the processor (coinbase) and any included uncles.
@@ -64,38 +78,63 @@ func (p *StateProcessor) Process(block *types.Block, statedb *state.StateDB, cfg
 		gp       = new(GasPool).AddGas(block.GasLimit())
 		txCount  = 0 //[TL]	[BL]
 	)
+
+	timeEVMStart := time.Now() //[TL] [BL]
 	// Mutate the block and state according to any hard-fork specs
 	if p.config.DAOForkSupport && p.config.DAOForkBlock != nil && p.config.DAOForkBlock.Cmp(block.Number()) == 0 {
 		misc.ApplyDAOHardFork(statedb)
 	}
-	//	timeTXs := time.Now() //[TL] [BL]
 	blockContext := NewEVMBlockContext(header, p.bc, nil)
 	vmenv := vm.NewEVM(blockContext, vm.TxContext{}, statedb, p.config, cfg)
+
+	timeInit := time.Since(timeEVMStart) //[TL] [BL]
+	//fmt.Println("[BL] EVM init time = ", timeInit)
+	totalBLInit += timeInit
+
 	// Iterate over and process the individual transactions
 	for i, tx := range block.Transactions() {
-		//timeSingleTX := time.Now() //[TL] [Tx]
+		timeSingleTX := time.Now() //[TL] [Tx]
 		msg, err := tx.AsMessage(types.MakeSigner(p.config, header.Number))
 		if err != nil {
 			return nil, nil, 0, txCount, err //[TL] added int return
 		}
 		statedb.Prepare(tx.Hash(), block.Hash(), i)
+		timeDB := time.Since(timeSingleTX) //<== [TL] [TX]
+		totalBLDB += timeDB
+		//fmt.Println("[TX] DB prepare t= ", timeDB)
+
 		receipt, err := applyTransaction(msg, p.config, p.bc, nil, gp, statedb, header, tx, usedGas, vmenv)
 		if err != nil {
 			return nil, nil, 0, txCount, fmt.Errorf("could not apply tx %d [%v]: %w", i, tx.Hash().Hex(), err)
 		}
 		receipts = append(receipts, receipt)
 		allLogs = append(allLogs, receipt.Logs...)
-		//fmt.Println("[TX] idx= ", i, "t=", time.Since(timeSingleTX)) //[TL] [TX]
+		timeTx := time.Since(timeSingleTX) - timeDB
+		totalBLApplyTx += timeTx
+		//fmt.Println("[TX] idx= ", i, "t=", timeTx) //[TL] [TX]
 		txCount = i //[TL] [BL]
 	}
+	timeProcess := time.Since(timeEVMStart) - timeInit
+
+	finalStart := time.Now()
 	// Finalize the block, applying any consensus engine specific extras (e.g. block rewards)
 	p.engine.Finalize(p.bc, header, statedb, block.Transactions(), block.Uncles()) //[TL] skip the Finalize
-	//fmt.Println("skipped Block finalization, FREEZE")	//[TL]
-	//	fmt.Println("[BL] TxCount=", txCount, "t=", time.Since(timeTXs)) //applyTx +j finalize [TL] [BL]
+	timeFinal := time.Since(finalStart)
+	totalBLFinal += timeFinal
+
+	//fmt.Println("[BL] TxCount=", txCount, "t=", time.Since(timeEVMStart)) //applyTx +j finalize [TL] [BL]
+	//	fmt.Println("[BL] #", block.Number(), "init t=", totalBLInit, "DB t=", totalBLDB, ", TX t=", totalBLApplyTx, ", final t=", totalBLFinal)
+	//fmt.Println("[TX] reset =", totalTxReset, " applyMsg =", totalApplyMsg, " txFinal =", totalTxFinal, " recpt = ", totalTxRecpt)
+
+	//<== [TL] [BL] printing block local timer
+	fmt.Printf("[BL] process() #= %v, %3d txs, \tinit t= %v, \tProcess t= %v, \tfinal t= %v\n",
+		block.Number(), txCount, timeInit, timeProcess, timeFinal)
 	return receipts, allLogs, *usedGas, txCount, nil //[TL] added txCount return value
 }
 
 func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainContext, author *common.Address, gp *GasPool, statedb *state.StateDB, header *types.Header, tx *types.Transaction, usedGas *uint64, evm *vm.EVM) (*types.Receipt, error) {
+	applyTxStart := time.Now() //<== [TL] [TX]
+
 	// Create a new context to be used in the EVM environment
 	txContext := NewEVMTxContext(msg)
 	// Add addresses to access list if applicable
@@ -112,8 +151,12 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 
 	// Update the evm with the new transaction context.
 	evm.Reset(txContext, statedb)
+	txReset := time.Since((applyTxStart)) //<== [TL] [TX]
+
 	// Apply the transaction to the current state (included in the env)
 	result, err := ApplyMessage(evm, msg, gp)
+	msgApply := time.Since(applyTxStart) //<== [TL] [TX]
+
 	if err != nil {
 		return nil, err
 	}
@@ -127,6 +170,7 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 		//fmt.Println("skipped Tx Finalize")	//[TL] [OP] [TX]
 	}
 	*usedGas += result.UsedGas
+	txFinal := time.Since(applyTxStart) //[TL] [TX]
 	//fmt.Println("[TX] Finalize t=", time.Since(timeFinaliseState))	//[TL] [TX]
 	//timeReceipt := time.Now()
 
@@ -146,7 +190,15 @@ func applyTransaction(msg types.Message, config *params.ChainConfig, bc ChainCon
 	receipt.BlockNumber = header.Number
 	receipt.TransactionIndex = uint(statedb.TxIndex())
 
+	txRecpt := time.Since(applyTxStart) //[TL] [TX]
+	//<== processing the timers	[TL][TX], printer is in upper level func
+	totalTxReset += txReset
+	totalApplyMsg += (msgApply - txReset)
+	totalTxFinal += (txFinal - msgApply)
+	totalTxRecpt += (txRecpt - txFinal)
 	//fmt.Println("[TX] Recpt t=", time.Since(timeReceipt))	//[TL] [TX]
+	//<== end
+
 	return receipt, err
 }
 
